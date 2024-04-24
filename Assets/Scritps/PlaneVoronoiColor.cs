@@ -21,6 +21,11 @@ public class PlaneVoronoiColor : MonoBehaviour
 
     [SerializeField] type interpolationType = type.blackToWhite;
 
+    [SerializeField] bool generate = false;
+    [SerializeField] bool addRigidbody  = false;
+
+    Vector2[] points;
+
 
     public Material material;
 
@@ -29,24 +34,19 @@ public class PlaneVoronoiColor : MonoBehaviour
     {
         if (interpolationType == type.colored)
         {
-            Vector2[] points;
             SetColors(out points);
             List<Triangle> triangles = DelaunayTriangulation(points.ToList());
             DrawDelaunayLines(triangles);
         }
         else if(interpolationType == type.blackToWhite)
         {
-            Vector2[] points;
             SetBlackToWhite(out points);
             List<Triangle> triangles = DelaunayTriangulation(points.ToList());
             DrawDelaunayLines(triangles);
         }
         else if (interpolationType == type.whiteToBlack)
         {
-            Vector2[] points;
             SetWhiteToBlack(out points);
-            List<Triangle> triangles = DelaunayTriangulation(points.ToList());
-            DrawDelaunayLines(triangles);
         }
 
 
@@ -55,18 +55,33 @@ public class PlaneVoronoiColor : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-
+        if (generate)
+        {
+            List<Triangle> triangles = DelaunayTriangulation(points.ToList());
+            DrawDelaunayLines(triangles);
+            GenerateNewMeshes(triangles);
+        }
     }
 
     List<Triangle> DelaunayTriangulation(List<Vector2> points)
     {
-        List<Vector2> pointList = new List<Vector2>(points);
         List<Triangle> triangleList = new List<Triangle>();
-
-        // Add super triangle large enough to contain all points
-        float minX = points[0].x, minY = points[0].y, maxX = points[0].x, maxY = points[0].y;
+        Vector3[] verts = GetComponent<MeshFilter>().mesh.vertices;
+        Vector2[] verts2 = new Vector2[verts.Length];
+        for(int i = 0; i < verts.Length; i++)
+        {
+            verts2[i] = new Vector2(verts[i].x*25.6f, verts[i].z * 25.6f);
+            verts2[i] += new Vector2(size / 2, size / 2);
+        }
+        points.AddRange(verts2);
+        points[0] += new Vector2(this.transform.position.x - size/2, this.transform.position.z - size / 2);
+        float minX = points[0].x,
+              minY = points[0].y, 
+              maxX = points[0].x, 
+              maxY = points[0].y;
         for (int i = 1; i < points.Count; i++)
         {
+            points[i] += new Vector2(this.transform.position.x - size / 2, this.transform.position.z - size / 2);
             if (points[i].x < minX) minX = points[i].x;
             if (points[i].y < minY) minY = points[i].y;
             if (points[i].x > maxX) maxX = points[i].x;
@@ -130,7 +145,6 @@ public class PlaneVoronoiColor : MonoBehaviour
             }
         }
 
-        // Remove triangles that share vertices with the super triangle
         triangleList.RemoveAll(triangle => triangle.HasVertex(p1) || triangle.HasVertex(p2) || triangle.HasVertex(p3));
 
         return triangleList;
@@ -145,6 +159,45 @@ public class PlaneVoronoiColor : MonoBehaviour
             Debug.DrawLine(new Vector3(triangle.point3.x, 0, triangle.point3.y), new Vector3(triangle.point1.x, 0, triangle.point1.y), Color.red, Mathf.Infinity);
 
         }
+    }
+
+    void GenerateNewMeshes(List<Triangle> delaunayTriangles)
+    {
+        for(int i = 0; i <  delaunayTriangles.Count; i++)
+        {
+            GameObject gameObject = new GameObject("broken");
+            gameObject.transform.localScale = new Vector3(1, 0.1f, 1);
+            Mesh mesh = new Mesh();
+            Vector3[] vertices = new Vector3[3];
+            int[] triangles = new int[3];
+
+            vertices[0] = new Vector3(delaunayTriangles[i].point1.x, 5, delaunayTriangles[i].point1.y);
+            vertices[1] = new Vector3(delaunayTriangles[i].point2.x, 5, delaunayTriangles[i].point2.y);
+            vertices[2] = new Vector3(delaunayTriangles[i].point3.x, 5, delaunayTriangles[i].point3.y);
+            triangles[0] = 0;
+            triangles[1] = 1;
+            triangles[2] = 2;
+            if (vertices[0] == vertices[1] || vertices[0] == vertices[2] || vertices[1] == vertices[2])
+            {
+                Destroy(gameObject);
+                continue;
+            }
+            MeshFilter filter = gameObject.AddComponent<MeshFilter>();
+            mesh.vertices = vertices;
+            mesh.triangles = triangles;
+            filter.mesh = mesh;
+            MeshRenderer meshRenderer = gameObject.AddComponent<MeshRenderer>();
+            meshRenderer.sharedMaterial = material;
+            MeshCollider meshCollider = gameObject.AddComponent<MeshCollider>();
+            meshCollider.convex = true;
+            if(addRigidbody)
+            {
+                Rigidbody rigidbody = gameObject.AddComponent<Rigidbody>();
+
+            }
+            //rigidbody.isKinematic = true;
+        }
+        Destroy(this.gameObject);
     }
 
     void SetColors(out Vector2[] points)
@@ -215,10 +268,8 @@ public class PlaneVoronoiColor : MonoBehaviour
                         distance = Vector2.Distance(new Vector2(x, y), points[i]);
                     }
                 }
-                // Normalize the distance to be between 0 and 1
                 float normalizedDistance = Mathf.Clamp01(distance / cellSize);
 
-                // Interpolate between black and white based on normalized distance
                 colors[x + y * size] = Color.Lerp(Color.black, Color.white, normalizedDistance);
                 if(normalizedDistance == 0)
                 {
@@ -256,10 +307,8 @@ public class PlaneVoronoiColor : MonoBehaviour
                     }
                 }
 
-                // Normalize the distance to be between 0 and 1
                 float normalizedDistance = Mathf.Clamp01(distance / cellSize);
 
-                // Interpolate between black and white based on normalized distance
                 colors[x + y * size] = Color.Lerp(Color.white, Color.black, normalizedDistance);
             }
         }
@@ -323,59 +372,7 @@ public struct Triangle
     }
 }
 
-public struct Triangle3
-{
-    public Vector3 point1;
-    public Vector3 point2;
-    public Vector3 point3;
 
-    public Triangle3(Vector3 p1, Vector3 p2, Vector3 p3)
-    {
-        point1 = p1;
-        point2 = p2;
-        point3 = p3;
-    }
-
-    public bool HasVertex(Vector3 vertex)
-    {
-        return vertex == point1 || vertex == point2 || vertex == point3;
-    }
-
-    public bool IsDifferentFrom(Triangle3 other)
-    {
-        return !((point1 == other.point1 || point1 == other.point2 || point1 == other.point3) &&
-                 (point2 == other.point1 || point2 == other.point2 || point2 == other.point3) &&
-                 (point3 == other.point1 || point3 == other.point2 || point3 == other.point3));
-    }
-
-    public List<Edge3> GetEdges()
-    {
-        List<Edge3> edges = new List<Edge3>
-        {
-            new Edge3(point1, point2),
-            new Edge3(point2, point3),
-            new Edge3(point3, point1)
-        };
-        return edges;
-    }
-
-    public bool CircumcircleContains(Vector3 point)
-    {
-        float ab = (point1.x * point1.x) + (point1.y * point1.y) + (point1.z * point1.z);
-        float cd = (point2.x * point2.x) + (point2.y * point2.y) + (point2.z * point2.z);
-        float ef = (point3.x * point3.x) + (point3.y * point3.y) + (point3.z * point3.z);
-
-        float circumX = (ab * (point2.y - point3.y) + cd * (point3.y - point1.y) + ef * (point1.y - point2.y)) / (2f * (point1.x * (point2.y - point3.y) - point1.y * (point2.x - point3.x) + point2.x * point3.y - point3.x * point2.y));
-        float circumY = (ab * (point3.x - point2.x) + cd * (point1.x - point3.x) + ef * (point2.x - point1.x)) / (2f * (point1.x * (point2.y - point3.y) - point1.y * (point2.x - point3.x) + point2.x * point3.y - point3.x * point2.y));
-        float circumZ = (ab * (point2.z - point3.z) + cd * (point3.z - point1.z) + ef * (point1.z - point2.z)) / (2f * (point1.x * (point2.y - point3.y) - point1.y * (point2.x - point3.x) + point2.x * point3.y - point3.x * point2.y));
-        Vector3 circumcenter = new Vector3(circumX, circumY,circumZ);
-
-        float radiusSquared = Mathf.Pow(point1.x - circumcenter.x, 2) + Mathf.Pow(point1.y - circumcenter.y, 2) + Mathf.Pow(point1.z - circumcenter.z, 2);
-        float distSquared = Mathf.Pow(point.x - circumcenter.x, 2) + Mathf.Pow(point.y - circumcenter.y, 2) + Mathf.Pow(point.z - circumcenter.z, 2);
-
-        return distSquared <= radiusSquared;
-    }
-}
 public struct Edge
 {
     public Vector2 point1;
@@ -394,20 +391,4 @@ public struct Edge
     }
 }
 
-public struct Edge3
-{
-    public Vector3 point1;
-    public Vector3 point2;
 
-    public Edge3(Vector3 p1, Vector3 p2)
-    {
-        point1 = p1;
-        point2 = p2;
-    }
-
-    public bool Equals(Edge3 other)
-    {
-        return (point1 == other.point1 && point2 == other.point2) ||
-               (point1 == other.point2 && point2 == other.point1);
-    }
-}
